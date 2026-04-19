@@ -1,0 +1,16 @@
+# Dataset
+dataset/
+data/
+*.jpg
+*.png
+
+# Model files
+*.h5
+*.pth
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual env
+venv/
