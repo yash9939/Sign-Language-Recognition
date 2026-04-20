@@ -16,7 +16,7 @@ optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3)
 
-EPOCHS = 20
+EPOCHS = 10
 
 for epoch in range(EPOCHS):
     model.train()
@@ -49,4 +49,4 @@ for epoch in range(EPOCHS):
 
     scheduler.step(val_loss)
 
-torch.save(model.state_dict(), "models/asl_model.pth")
+torch.save(model.state_dict(), "saved_models/asl_model.pth")

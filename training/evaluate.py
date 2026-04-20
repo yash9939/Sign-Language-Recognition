@@ -5,7 +5,7 @@ from utils.dataset_loader import get_data_loaders
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 model = ASL_CNN().to(device)
-model.load_state_dict(torch.load("models/asl_model.pth"))
+model.load_state_dict(torch.load("saved_models/asl_model.pth"))
 
 _, _, test_loader = get_data_loaders("Dataset")
 
