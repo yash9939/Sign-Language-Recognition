@@ -7,7 +7,7 @@ from utils.text_builder import update_sentence
 
 # Load model
 model = ASL_CNN()
-model.load_state_dict(torch.load("models/asl_model.pth"))
+model.load_state_dict(torch.load("saved_models/asl_model.pth"))
 model.eval()
 
 # Define transform
