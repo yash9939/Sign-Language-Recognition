@@ -1,9 +1,27 @@
+<<<<<<< HEAD
+# Dataset
+
+data/
+
+*.png
+
+# Model files
+*.h5
+
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual env
+venv/
+=======
 # ==============================
 # Dataset
 # ==============================
 data/
 *.png
-*.jpg
+
 *.jpeg
 
 # ==============================
@@ -36,3 +54,4 @@ Thumbs.db
 # Jupyter Notebook
 # ==============================
 .ipynb_checkpoints/
+>>>>>>> e7f94120b8e68fc0d16059433aa44b447e4ec253
