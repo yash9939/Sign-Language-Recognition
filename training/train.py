@@ -1,110 +1,167 @@
+import cv2
+import time
+import json
 import torch
-import torch.nn as nn
-import torch.optim as optim
+import torch.nn.functional as F
+from PIL import Image
+from torchvision import transforms
+from collections import deque
+import mediapipe as mp
 
-<<<<<<< HEAD
-from models.cnn_model import ASL_CNN
-=======
-from models.cnn_model import ASL_ResNet 
->>>>>>> e7f94120b8e68fc0d16059433aa44b447e4ec253
-from utils.dataset_loader import get_data_loaders
+from models.cnn_model import ASL_ResNet
+from utils.text_builder import update_sentence
 
+# =========================
+# DEVICE
+# =========================
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-train_loader, val_loader, _ = get_data_loaders("Dataset")
-
-<<<<<<< HEAD
-model = ASL_CNN().to(device)
-
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
-
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3)
-
-EPOCHS = 10
-=======
+# =========================
+# LOAD MODEL
+# =========================
 model = ASL_ResNet().to(device)
+model.load_state_dict(torch.load("saved_models/asl_model.pth", map_location=device))
+model.eval()
 
-criterion = nn.CrossEntropyLoss(label_smoothing=0.1)  
-optimizer = optim.Adam(model.parameters(), lr=1e-4)   
+# =========================
+# LOAD CLASS NAMES
+# =========================
+with open("saved_models/classes.json", "r") as f:
+    classes = json.load(f)
 
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3)
+# =========================
+# TRANSFORM (MATCH TRAINING)
+# =========================
+transform = transforms.Compose([
+    transforms.Resize((224,224)),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485,0.456,0.406],
+                         [0.229,0.224,0.225])
+])
 
-EPOCHS = 20   
->>>>>>> e7f94120b8e68fc0d16059433aa44b447e4ec253
+# =========================
+# MEDIAPIPE SETUP
+# =========================
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(
+    max_num_hands=1,
+    min_detection_confidence=0.7,
+    min_tracking_confidence=0.7
+)
+mp_draw = mp.solutions.drawing_utils
 
-for epoch in range(EPOCHS):
-    model.train()
-    train_loss = 0
-<<<<<<< HEAD
-=======
-    correct = 0
-    total = 0
->>>>>>> e7f94120b8e68fc0d16059433aa44b447e4ec253
+# =========================
+# CAMERA
+# =========================
+cap = cv2.VideoCapture(0)
 
-    for images, labels in train_loader:
-        images, labels = images.to(device), labels.to(device)
+# =========================
+# CONTROL VARIABLES
+# =========================
+sentence = ""
+buffer = deque(maxlen=10)
+stable_label = ""
+hold_start_time = 0
+hold_time_required = 2.0  # seconds
 
-        optimizer.zero_grad()
-        outputs = model(images)
-        loss = criterion(outputs, labels)
+# =========================
+# MAIN LOOP
+# =========================
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
 
-        loss.backward()
-        optimizer.step()
+    frame = cv2.flip(frame, 1)
+    h, w, _ = frame.shape
 
-        train_loss += loss.item()
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    result = hands.process(rgb)
 
-<<<<<<< HEAD
-    # Validation
-    model.eval()
-    val_loss = 0
-=======
-        # Accuracy
-        _, preds = torch.max(outputs, 1)
-        correct += (preds == labels).sum().item()
-        total += labels.size(0)
+    label = ""
+    conf_val = 0.0
 
-    train_acc = 100 * correct / total
+    # =========================
+    # HAND DETECTION
+    # =========================
+    if result.multi_hand_landmarks:
+        for hand_landmarks in result.multi_hand_landmarks:
 
-    # Validation
-    model.eval()
-    val_loss = 0
-    val_correct = 0
-    val_total = 0
->>>>>>> e7f94120b8e68fc0d16059433aa44b447e4ec253
+            mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
-    with torch.no_grad():
-        for images, labels in val_loader:
-            images, labels = images.to(device), labels.to(device)
-            outputs = model(images)
-            loss = criterion(outputs, labels)
-<<<<<<< HEAD
-            val_loss += loss.item()
+            x_list, y_list = [], []
 
-    print(f"Epoch {epoch+1} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
+            for lm in hand_landmarks.landmark:
+                x_list.append(int(lm.x * w))
+                y_list.append(int(lm.y * h))
 
-    scheduler.step(val_loss)
+            x_min, x_max = min(x_list), max(x_list)
+            y_min, y_max = min(y_list), max(y_list)
 
-=======
+            # Padding
+            padding = 80
+            x_min = max(0, x_min - padding)
+            y_min = max(0, y_min - padding)
+            x_max = min(w, x_max + padding)
+            y_max = min(h, y_max + padding)
 
-            val_loss += loss.item()
+            cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0,255,0), 2)
 
-            _, preds = torch.max(outputs, 1)
-            val_correct += (preds == labels).sum().item()
-            val_total += labels.size(0)
+            roi = frame[y_min:y_max, x_min:x_max]
 
-    val_acc = 100 * val_correct / val_total
+            if roi.size != 0:
+                img = cv2.resize(roi, (224,224))
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(img)
+                img = transform(img).unsqueeze(0).to(device)
 
-    print(f"Epoch {epoch+1} | "
-          f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}% | "
-          f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%")
+                with torch.no_grad():
+                    output = model(img)
+                    prob = F.softmax(output, dim=1)
+                    confidence, pred = torch.max(prob, 1)
 
-    scheduler.step(val_loss)
+                conf_val = confidence.item()
 
-<<<<<<< HEAD
-# Save model ...
-=======
-# Save model
->>>>>>> e7f94120b8e68fc0d16059433aa44b447e4ec253
->>>>>>> 65ba29d3f8e1316bfc9b362047c694bf363a8ec2
-torch.save(model.state_dict(), "saved_models/asl_model.pth")
+                # Strong filtering
+                if conf_val > 0.95:
+                    label = classes[pred.item()]
+                else:
+                    label = ""
+
+    # =========================
+    # SMOOTHING + HOLD LOGIC
+    # =========================
+    buffer.append(label)
+
+    if len(buffer) == buffer.maxlen:
+        most_common = max(set(buffer), key=buffer.count)
+
+        if buffer.count(most_common) >= 8 and most_common != "":
+
+            if stable_label != most_common:
+                stable_label = most_common
+                hold_start_time = time.time()
+
+            elif time.time() - hold_start_time > hold_time_required:
+                sentence = update_sentence(sentence, stable_label)
+                hold_start_time = time.time()
+
+        else:
+            stable_label = ""
+
+    # =========================
+    # DISPLAY
+    # =========================
+    cv2.putText(frame, f"{label} ({conf_val:.2f})", (10,50),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+
+    cv2.putText(frame, sentence, (10,100),
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 2)
+
+    cv2.imshow("ASL Detection", frame)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
