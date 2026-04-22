@@ -13,7 +13,7 @@ class ASL_ResNet(nn.Module):
             nn.ReLU(),
             nn.Dropout(0.5),
             nn.Linear(512, num_classes)
-        )
+        )## Forward pass simply goes through the backbone
 
     def forward(self, x):
         return self.backbone(x)

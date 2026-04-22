@@ -11,7 +11,7 @@ from models.cnn_model import ASL_CNN
 from utils.text_builder import update_sentence
 
 # =========================
-# LOAD MODEL
+# LOAD MODEL mmm
 # =========================
 model = ASL_CNN()
 model.load_state_dict(torch.load("saved_models/asl_model.pth", map_location=torch.device('cpu')))

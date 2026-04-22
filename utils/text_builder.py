@@ -12,7 +12,7 @@ def update_sentence(sentence, pred_label):
         return sentence[:-1]
 
     else:
-        # Prevent repeating same letter continuously
+        # Prevent repeating same letter continuously ... unless it's a space
         if len(sentence) > 0 and sentence[-1] == pred_label:
             return sentence
         return sentence + pred_label

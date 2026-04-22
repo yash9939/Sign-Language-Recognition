@@ -69,5 +69,5 @@ for epoch in range(EPOCHS):
 
     scheduler.step(val_loss)
 
-# Save model
+# Save model ...
 torch.save(model.state_dict(), "saved_models/asl_model.pth")

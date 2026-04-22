@@ -9,7 +9,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = ASL_ResNet().to(device)
 model.load_state_dict(torch.load("saved_models/asl_model.pth", map_location=device))
 
-# Load class names (IMPORTANT)
+# Load class names (IMPORTANT) ... to ensure correct mapping
 with open("saved_models/classes.json", "r") as f:
     classes = json.load(f)
 

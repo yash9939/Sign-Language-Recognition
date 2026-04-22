@@ -56,7 +56,7 @@ def get_data_loaders(data_dir, batch_size=32):
     train_dataset.dataset.transform = train_transform
     val_dataset.dataset.transform = test_transform
 
-    # TEST DATA (no labels)
+    # TEST DATA (no labels) ...
     test_dataset = CustomTestDataset(
         folder_path=f"{data_dir}/test",
         transform=test_transform
