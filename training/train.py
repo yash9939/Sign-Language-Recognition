@@ -1,15 +1,11 @@
-import cv2
-import time
-import json
 import torch
-import torch.nn.functional as F
-from PIL import Image
-from torchvision import transforms
-from collections import deque
-import mediapipe as mp
+import torch.nn as nn
+import torch.optim as optim
+import os
+import json
 
 from models.cnn_model import ASL_ResNet
-from utils.text_builder import update_sentence
+from utils.dataset_loader import get_data_loaders
 
 # =========================
 # DEVICE
@@ -17,151 +13,94 @@ from utils.text_builder import update_sentence
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # =========================
-# LOAD MODEL
+# LOAD DATA
 # =========================
-model = ASL_ResNet().to(device)
-model.load_state_dict(torch.load("saved_models/asl_model.pth", map_location=device))
-model.eval()
+train_loader, val_loader, _, class_names = get_data_loaders("Dataset")
 
 # =========================
-# LOAD CLASS NAMES
+# MODEL
 # =========================
-with open("saved_models/classes.json", "r") as f:
-    classes = json.load(f)
+model = ASL_ResNet(num_classes=len(class_names)).to(device)
 
 # =========================
-# TRANSFORM (MATCH TRAINING)
+# LOSS + OPTIMIZER
 # =========================
-transform = transforms.Compose([
-    transforms.Resize((224,224)),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485,0.456,0.406],
-                         [0.229,0.224,0.225])
-])
+criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
-# =========================
-# MEDIAPIPE SETUP
-# =========================
-mp_hands = mp.solutions.hands
-hands = mp_hands.Hands(
-    max_num_hands=1,
-    min_detection_confidence=0.7,
-    min_tracking_confidence=0.7
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer, patience=3
 )
-mp_draw = mp.solutions.drawing_utils
 
 # =========================
-# CAMERA
+# TRAINING
 # =========================
-cap = cv2.VideoCapture(0)
+EPOCHS = 20
+
+for epoch in range(EPOCHS):
+    model.train()
+    train_loss = 0
+    correct = 0
+    total = 0
+
+    for images, labels in train_loader:
+        images, labels = images.to(device), labels.to(device)
+
+        optimizer.zero_grad()
+        outputs = model(images)
+        loss = criterion(outputs, labels)
+
+        loss.backward()
+        optimizer.step()
+
+        train_loss += loss.item()
+
+        _, preds = torch.max(outputs, 1)
+        correct += (preds == labels).sum().item()
+        total += labels.size(0)
+
+    train_acc = 100 * correct / total
+
+    # =========================
+    # VALIDATION
+    # =========================
+    model.eval()
+    val_loss = 0
+    val_correct = 0
+    val_total = 0
+
+    with torch.no_grad():
+        for images, labels in val_loader:
+            images, labels = images.to(device), labels.to(device)
+
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+
+            val_loss += loss.item()
+
+            _, preds = torch.max(outputs, 1)
+            val_correct += (preds == labels).sum().item()
+            val_total += labels.size(0)
+
+    val_acc = 100 * val_correct / val_total
+
+    print(
+        f"Epoch {epoch+1}/{EPOCHS} | "
+        f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}% | "
+        f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%"
+    )
+
+    scheduler.step(val_loss)
 
 # =========================
-# CONTROL VARIABLES
+# SAVE MODEL
 # =========================
-sentence = ""
-buffer = deque(maxlen=10)
-stable_label = ""
-hold_start_time = 0
-hold_time_required = 2.0  # seconds
+os.makedirs("saved_models", exist_ok=True)
 
-# =========================
-# MAIN LOOP
-# =========================
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
+torch.save(model.state_dict(), "saved_models/asl_model.pth")
 
-    frame = cv2.flip(frame, 1)
-    h, w, _ = frame.shape
+# Save class names (VERY IMPORTANT)
+with open("saved_models/classes.json", "w") as f:
+    json.dump(class_names, f)
 
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    result = hands.process(rgb)
-
-    label = ""
-    conf_val = 0.0
-
-    # =========================
-    # HAND DETECTION
-    # =========================
-    if result.multi_hand_landmarks:
-        for hand_landmarks in result.multi_hand_landmarks:
-
-            mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-
-            x_list, y_list = [], []
-
-            for lm in hand_landmarks.landmark:
-                x_list.append(int(lm.x * w))
-                y_list.append(int(lm.y * h))
-
-            x_min, x_max = min(x_list), max(x_list)
-            y_min, y_max = min(y_list), max(y_list)
-
-            # Padding
-            padding = 80
-            x_min = max(0, x_min - padding)
-            y_min = max(0, y_min - padding)
-            x_max = min(w, x_max + padding)
-            y_max = min(h, y_max + padding)
-
-            cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0,255,0), 2)
-
-            roi = frame[y_min:y_max, x_min:x_max]
-
-            if roi.size != 0:
-                img = cv2.resize(roi, (224,224))
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                img = Image.fromarray(img)
-                img = transform(img).unsqueeze(0).to(device)
-
-                with torch.no_grad():
-                    output = model(img)
-                    prob = F.softmax(output, dim=1)
-                    confidence, pred = torch.max(prob, 1)
-
-                conf_val = confidence.item()
-
-                # Strong filtering
-                if conf_val > 0.95:
-                    label = classes[pred.item()]
-                else:
-                    label = ""
-
-    # =========================
-    # SMOOTHING + HOLD LOGIC
-    # =========================
-    buffer.append(label)
-
-    if len(buffer) == buffer.maxlen:
-        most_common = max(set(buffer), key=buffer.count)
-
-        if buffer.count(most_common) >= 8 and most_common != "":
-
-            if stable_label != most_common:
-                stable_label = most_common
-                hold_start_time = time.time()
-
-            elif time.time() - hold_start_time > hold_time_required:
-                sentence = update_sentence(sentence, stable_label)
-                hold_start_time = time.time()
-
-        else:
-            stable_label = ""
-
-    # =========================
-    # DISPLAY
-    # =========================
-    cv2.putText(frame, f"{label} ({conf_val:.2f})", (10,50),
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
-
-    cv2.putText(frame, sentence, (10,100),
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 2)
-
-    cv2.imshow("ASL Detection", frame)
-
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-cap.release()
-cv2.destroyAllWindows()
+print("✅ Model and classes saved successfully!")

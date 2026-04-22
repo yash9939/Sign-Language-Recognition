@@ -38,7 +38,7 @@ class ASL_CNN(nn.Module):
 from torchvision import models
 
 class ASL_ResNet(nn.Module):
-    def __init__(self, num_classes=29):
+    def __init__(self, num_classes=26):
         super().__init__()
 
         self.backbone = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
