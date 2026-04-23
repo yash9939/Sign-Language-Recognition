@@ -4,13 +4,9 @@ from utils.transforms import train_transform, test_transform
 import os
 from PIL import Image
 
-<<<<<<< HEAD
-# Custom Test Dataset
-=======
 # =========================
 # Custom Test Dataset
 # =========================
->>>>>>> e7f94120b8e68fc0d16059433aa44b447e4ec253
 class CustomTestDataset:
     def __init__(self, folder_path, transform=None):
         self.folder_path = folder_path
@@ -31,25 +27,6 @@ class CustomTestDataset:
         if self.transform:
             image = self.transform(image)
 
-<<<<<<< HEAD
-        return image, img_path   # returning path (no label available)
-
-
-def get_data_loaders(data_dir, batch_size=32):
-
-    # TRAIN (ImageFolder works)
-    train_data = datasets.ImageFolder(
-        root=f"{data_dir}/train",
-        transform=train_transform
-    )
-
-    # Split into train + validation
-    train_size = int(0.8 * len(train_data))
-    val_size = len(train_data) - train_size
-    train_dataset, val_dataset = random_split(train_data, [train_size, val_size])
-
-    # TEST (custom loader)
-=======
         return image, img_path
 
 
@@ -58,12 +35,12 @@ def get_data_loaders(data_dir, batch_size=32):
 # =========================
 def get_data_loaders(data_dir, batch_size=32):
 
-    # TRAIN DATA
+    # Load full dataset (no transform yet)
     full_dataset = datasets.ImageFolder(
         root=f"{data_dir}/train"
     )
 
-    # Save class mapping (IMPORTANT)
+    # Save class mapping (VERY IMPORTANT)
     class_names = full_dataset.classes
     class_to_idx = full_dataset.class_to_idx
 
@@ -75,31 +52,19 @@ def get_data_loaders(data_dir, batch_size=32):
 
     train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
 
-    # APPLY TRANSFORMS SEPARATELY (IMPORTANT FIX)
+    # Apply transforms separately
     train_dataset.dataset.transform = train_transform
     val_dataset.dataset.transform = test_transform
 
-<<<<<<< HEAD
-    # TEST DATA (no labels) ...
-=======
-    # TEST DATA (no labels)
->>>>>>> e7f94120b8e68fc0d16059433aa44b447e4ec253
->>>>>>> 65ba29d3f8e1316bfc9b362047c694bf363a8ec2
+    # Test dataset (no labels)
     test_dataset = CustomTestDataset(
         folder_path=f"{data_dir}/test",
         transform=test_transform
     )
 
-<<<<<<< HEAD
-=======
     # DataLoaders
->>>>>>> e7f94120b8e68fc0d16059433aa44b447e4ec253
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size)
     test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
-<<<<<<< HEAD
-    return train_loader, val_loader, test_loader
-=======
     return train_loader, val_loader, test_loader, class_names
->>>>>>> e7f94120b8e68fc0d16059433aa44b447e4ec253

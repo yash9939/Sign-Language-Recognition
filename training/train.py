@@ -1,46 +1,47 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import os
+import json
 
-<<<<<<< HEAD
-from models.cnn_model import ASL_CNN
-=======
-from models.cnn_model import ASL_ResNet 
->>>>>>> e7f94120b8e68fc0d16059433aa44b447e4ec253
+from models.cnn_model import ASL_ResNet
 from utils.dataset_loader import get_data_loaders
 
+# =========================
+# DEVICE
+# =========================
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-train_loader, val_loader, _ = get_data_loaders("Dataset")
+# =========================
+# LOAD DATA
+# =========================
+train_loader, val_loader, _, class_names = get_data_loaders("Dataset")
 
-<<<<<<< HEAD
-model = ASL_CNN().to(device)
+# =========================
+# MODEL
+# =========================
+model = ASL_ResNet(num_classes=len(class_names)).to(device)
 
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
+# =========================
+# LOSS + OPTIMIZER
+# =========================
+criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer, patience=3
+)
 
-EPOCHS = 10
-=======
-model = ASL_ResNet().to(device)
-
-criterion = nn.CrossEntropyLoss(label_smoothing=0.1)  
-optimizer = optim.Adam(model.parameters(), lr=1e-4)   
-
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3)
-
-EPOCHS = 20   
->>>>>>> e7f94120b8e68fc0d16059433aa44b447e4ec253
+# =========================
+# TRAINING
+# =========================
+EPOCHS = 20
 
 for epoch in range(EPOCHS):
     model.train()
     train_loss = 0
-<<<<<<< HEAD
-=======
     correct = 0
     total = 0
->>>>>>> e7f94120b8e68fc0d16059433aa44b447e4ec253
 
     for images, labels in train_loader:
         images, labels = images.to(device), labels.to(device)
@@ -54,38 +55,26 @@ for epoch in range(EPOCHS):
 
         train_loss += loss.item()
 
-<<<<<<< HEAD
-    # Validation
-    model.eval()
-    val_loss = 0
-=======
-        # Accuracy
         _, preds = torch.max(outputs, 1)
         correct += (preds == labels).sum().item()
         total += labels.size(0)
 
     train_acc = 100 * correct / total
 
-    # Validation
+    # =========================
+    # VALIDATION
+    # =========================
     model.eval()
     val_loss = 0
     val_correct = 0
     val_total = 0
->>>>>>> e7f94120b8e68fc0d16059433aa44b447e4ec253
 
     with torch.no_grad():
         for images, labels in val_loader:
             images, labels = images.to(device), labels.to(device)
+
             outputs = model(images)
             loss = criterion(outputs, labels)
-<<<<<<< HEAD
-            val_loss += loss.item()
-
-    print(f"Epoch {epoch+1} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
-
-    scheduler.step(val_loss)
-
-=======
 
             val_loss += loss.item()
 
@@ -95,16 +84,23 @@ for epoch in range(EPOCHS):
 
     val_acc = 100 * val_correct / val_total
 
-    print(f"Epoch {epoch+1} | "
-          f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}% | "
-          f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%")
+    print(
+        f"Epoch {epoch+1}/{EPOCHS} | "
+        f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}% | "
+        f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%"
+    )
 
     scheduler.step(val_loss)
 
-<<<<<<< HEAD
-# Save model ...
-=======
-# Save model
->>>>>>> e7f94120b8e68fc0d16059433aa44b447e4ec253
->>>>>>> 65ba29d3f8e1316bfc9b362047c694bf363a8ec2
+# =========================
+# SAVE MODEL
+# =========================
+os.makedirs("saved_models", exist_ok=True)
+
 torch.save(model.state_dict(), "saved_models/asl_model.pth")
+
+# Save class names (VERY IMPORTANT)
+with open("saved_models/classes.json", "w") as f:
+    json.dump(class_names, f)
+
+print("✅ Model and classes saved successfully!")

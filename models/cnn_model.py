@@ -1,5 +1,5 @@
 import torch.nn as nn
-<<<<<<< HEAD
+
 
 class ASL_CNN(nn.Module):
     def __init__(self):
@@ -34,11 +34,11 @@ class ASL_CNN(nn.Module):
         x = self.gap(x)
         x = x.view(x.size(0), -1)
         return self.fc(x)
-=======
+
 from torchvision import models
 
 class ASL_ResNet(nn.Module):
-    def __init__(self, num_classes=29):
+    def __init__(self, num_classes=26):
         super().__init__()
 
         self.backbone = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
@@ -53,4 +53,3 @@ class ASL_ResNet(nn.Module):
 
     def forward(self, x):
         return self.backbone(x)
->>>>>>> e7f94120b8e68fc0d16059433aa44b447e4ec253
