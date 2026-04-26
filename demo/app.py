@@ -6,37 +6,38 @@ import torch.nn.functional as F
 from torchvision import transforms
 from collections import deque
 import mediapipe as mp
+import json
 
-from models.cnn_model import ASL_CNN
+from models.cnn_model import ASL_ResNet
 from utils.text_builder import update_sentence
 
 # =========================
-# LOAD MODEL mmm
+# DEVICE
 # =========================
-model = ASL_CNN()
-model.load_state_dict(torch.load("saved_models/asl_model.pth", map_location=torch.device('cpu')))
-model.eval()
-
 device = torch.device("cpu")
+
+# =========================
+# LOAD MODEL
+# =========================
+model = ASL_ResNet(num_classes=26)
+model.load_state_dict(torch.load("saved_models/asl_model.pth", map_location=device))
+model.eval()
 model.to(device)
 
 # =========================
-# TRANSFORM (match training)
+# LOAD CLASS LABELS
+# =========================
+with open("saved_models/classes.json", "r") as f:
+    classes = json.load(f)
+
+# =========================
+# TRANSFORM (MATCH TRAINING)
 # =========================
 transform = transforms.Compose([
-    transforms.Resize((128,128)),
-    transforms.ToTensor()
+    transforms.ToTensor(),
+    transforms.Normalize([0.485,0.456,0.406],
+                         [0.229,0.224,0.225])
 ])
-
-# =========================
-# IMPORTANT: CORRECT CLASS ORDER
-# =========================
-classes = sorted([
-    'A','B','C','D','E','F','G','H','I','J','K','L','M',
-    'N','O','P','Q','R','S','T','U','V','W','X','Y','Z'
-])
-
-sentence = ""
 
 # =========================
 # MEDIAPIPE SETUP
@@ -57,10 +58,11 @@ cap = cv2.VideoCapture(0)
 # =========================
 # CONTROL VARIABLES
 # =========================
+sentence = ""
 buffer = deque(maxlen=10)
 stable_label = ""
 hold_start_time = 0
-hold_time_required = 2.0  # seconds
+hold_time_required = 1.0
 
 # =========================
 # MAIN LOOP
@@ -70,15 +72,14 @@ while True:
     if not ret:
         break
 
-    # Flip for natural interaction
     frame = cv2.flip(frame, 1)
-
     h, w, _ = frame.shape
 
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     result = hands.process(rgb)
+    print("Hand detected:", result.multi_hand_landmarks is not None)
 
-    label = "nothing"
+    label = ""
     conf_val = 0.0
 
     # =========================
@@ -86,6 +87,7 @@ while True:
     # =========================
     if result.multi_hand_landmarks:
         for hand_landmarks in result.multi_hand_landmarks:
+
             mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
             x_list, y_list = [], []
@@ -97,7 +99,7 @@ while True:
             x_min, x_max = min(x_list), max(x_list)
             y_min, y_max = min(y_list), max(y_list)
 
-            # Bigger padding for full hand
+            # Smaller padding = bigger hand in frame
             padding = 80
             x_min = max(0, x_min - padding)
             y_min = max(0, y_min - padding)
@@ -107,11 +109,15 @@ while True:
             cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0,255,0), 2)
 
             roi = frame[y_min:y_max, x_min:x_max]
+            roi = cv2.GaussianBlur(roi, (5,5), 0)
 
             if roi.size != 0:
-                img = cv2.resize(roi, (128,128))
+                # ✅ SINGLE resize (CRITICAL FIX)
+                img = cv2.resize(roi, (224,224))
+
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                 img = Image.fromarray(img)
+
                 img = transform(img).unsqueeze(0).to(device)
 
                 with torch.no_grad():
@@ -121,29 +127,25 @@ while True:
 
                 conf_val = confidence.item()
 
-                # Strong confidence filtering
-                if conf_val > 0.95:
+                if conf_val > 0.3:
                     label = classes[pred.item()]
                 else:
                     label = ""
 
     # =========================
-    # TEMPORAL SMOOTHING + HOLD LOGIC
+    # SMOOTHING + HOLD LOGIC
     # =========================
     buffer.append(label)
 
     if len(buffer) == buffer.maxlen:
         most_common = max(set(buffer), key=buffer.count)
 
-        # Only accept very stable predictions
         if buffer.count(most_common) >= 8 and most_common != "":
-            
-            # New gesture detected
+
             if stable_label != most_common:
                 stable_label = most_common
                 hold_start_time = time.time()
 
-            # Gesture held long enough
             elif time.time() - hold_start_time > hold_time_required:
                 sentence = update_sentence(sentence, stable_label)
                 hold_start_time = time.time()
@@ -164,6 +166,8 @@ while True:
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
+
+    time.sleep(0.03)
 
 cap.release()
 cv2.destroyAllWindows()
