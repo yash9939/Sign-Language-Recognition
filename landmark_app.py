@@ -164,16 +164,31 @@ while True:
                 1,
                 (255, 0, 0),
                 2)
-
+    cv2.putText(frame, "SPACE=space | D=delete | C=clear | Q=quit",
+                (10, 140),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (255, 255, 255),
+                1)
     cv2.imshow("ASL Detection", frame)
 
     key = cv2.waitKey(1) & 0xFF
+    
 
-    # Press 'c' to clear text
+# Clear full text
     if key == ord('c'):
         sentence = ""
         last_added = ""
 
+# Add SPACE
+    if key == ord(' '):
+        sentence += " "
+
+# Delete last character
+    if key == ord('d'):
+        sentence = sentence[:-1]
+
+# Quit app
     if key == ord('q'):
         break
 

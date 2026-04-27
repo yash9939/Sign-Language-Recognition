@@ -1,31 +1,72 @@
-import cv2
+import os
+import csv
 import torch
-import mediapipe as mp
 import torch.nn as nn
-import torch.nn.functional as F
-from collections import deque
-import time
+import torch.optim as optim
+from sklearn.model_selection import train_test_split
+from collections import Counter
+import random
 
 # =========================
-# CLASSES
+# SETTINGS
 # =========================
+DATASET_PATH = "landmark_dataset"
 CLASSES = sorted(list("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
 
 # =========================
-# CONFUSION GROUPS
+# LOAD DATA
 # =========================
-CONFUSION_GROUPS = [
-    {'M','N','T'},
-    {'A','E','S'},
-    {'U','V','W'}
-]
+X, y = [], []
 
-def in_same_group(a, b):
-    return any(a in g and b in g for g in CONFUSION_GROUPS)
+for idx, label in enumerate(CLASSES):
+    file_path = os.path.join(DATASET_PATH, f"{label}.csv")
 
-def entropy(probs):
-    p = probs + 1e-8
-    return float(-(p * p.log()).sum().item())
+    if not os.path.exists(file_path):
+        continue
+
+    with open(file_path, "r") as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if len(row) == 42:
+                X.append([float(i) for i in row])
+                y.append(idx)
+
+X = torch.tensor(X, dtype=torch.float32)
+y = torch.tensor(y, dtype=torch.long)
+
+print("Original Samples:", len(X))
+
+# =========================
+# 🔥 BALANCE DATA (IMPORTANT)
+# =========================
+counts = Counter(y.tolist())
+print("Before Balance:", counts)
+
+max_count = max(counts.values())
+
+new_X, new_y = [], []
+
+for cls in counts:
+    idxs = [i for i in range(len(y)) if y[i] == cls]
+
+    while len(idxs) < max_count:
+        idxs.append(random.choice(idxs))
+
+    for i in idxs:
+        new_X.append(X[i].tolist())
+        new_y.append(cls)
+
+X = torch.tensor(new_X, dtype=torch.float32)
+y = torch.tensor(new_y, dtype=torch.long)
+
+print("After Balance:", Counter(y.tolist()))
+
+# =========================
+# SPLIT
+# =========================
+X_train, X_val, y_train, y_val = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
 
 # =========================
 # MODEL
@@ -52,170 +93,43 @@ class LandmarkModel(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-# =========================
-# LOAD MODEL
-# =========================
 model = LandmarkModel()
-model.load_state_dict(torch.load("landmark_model.pth", map_location=torch.device("cpu")))
-model.eval()
+
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.0005)
 
 # =========================
-# MEDIAPIPE
+# TRAIN
 # =========================
-mp_hands = mp.solutions.hands
-hands = mp_hands.Hands(max_num_hands=1)
-mp_draw = mp.solutions.drawing_utils
+EPOCHS = 70
+best_acc = 0
 
-# =========================
-# CAMERA
-# =========================
-cap = cv2.VideoCapture(0)
+for epoch in range(EPOCHS):
+    model.train()
 
-# =========================
-# SMOOTHING + TEXT SYSTEM
-# =========================
-buffer = deque(maxlen=15)
-stable_label = ""
+    # 🔥 AUGMENTATION
+    noise = torch.randn_like(X_train) * 0.02
+    X_train_aug = X_train + noise
 
-sentence = ""
-last_added = ""
-hold_start = 0
-hold_time = 1.2  # seconds
+    outputs = model(X_train_aug)
+    loss = criterion(outputs, y_train)
 
-# =========================
-# MAIN LOOP
-# =========================
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
 
-    frame = cv2.flip(frame, 1)
+    # VALIDATION
+    model.eval()
+    with torch.no_grad():
+        val_outputs = model(X_val)
+        _, preds = torch.max(val_outputs, 1)
+        acc = (preds == y_val).float().mean()
 
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    result = hands.process(rgb)
+    print(f"Epoch {epoch+1} | Loss: {loss:.4f} | Val Acc: {acc:.2f}")
 
-    label = ""
-    conf_val = 0.0
+    if acc > best_acc:
+        best_acc = acc
+        torch.save(model.state_dict(), "landmark_model.pth")
 
-    if result.multi_hand_landmarks:
-        for hand_landmarks in result.multi_hand_landmarks:
-            mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-
-            # Extract landmarks
-            x_list, y_list = [], []
-            for lm in hand_landmarks.landmark:
-                x_list.append(lm.x)
-                y_list.append(lm.y)
-
-            # Normalize
-            base_x = x_list[0]
-            base_y = y_list[0]
-
-            x_list = [x - base_x for x in x_list]
-            y_list = [y - base_y for y in y_list]
-
-            max_val = max(
-                max(abs(x) for x in x_list),
-                max(abs(y) for y in y_list)
-            )
-
-            if max_val == 0:
-                continue
-
-            data = []
-            for x, y in zip(x_list, y_list):
-                data.append(x / max_val)
-                data.append(y / max_val)
-
-            data = torch.tensor(data, dtype=torch.float32).unsqueeze(0)
-
-            # =========================
-            # PREDICTION (IMPROVED)
-            # =========================
-            with torch.no_grad():
-                logits = model(data)
-                probs = F.softmax(logits, dim=1)[0]
-
-            top2_prob, top2_idx = torch.topk(probs, 2)
-
-            p1 = top2_prob[0].item()
-            p2 = top2_prob[1].item()
-
-            c1 = CLASSES[top2_idx[0].item()]
-            c2 = CLASSES[top2_idx[1].item()]
-
-            gap = p1 - p2
-            H = entropy(probs)
-
-            conf_val = p1
-
-            # Base thresholds
-            base_thr = 0.40
-            gap_thr = 0.10
-            ent_thr = 2.2
-
-            # Stricter for confusing letters
-            if in_same_group(c1, c2):
-                base_thr = 0.55
-                gap_thr = 0.18
-                ent_thr = 2.0
-
-            if (p1 > base_thr) and (gap > gap_thr) and (H < ent_thr):
-                label = c1
-            else:
-                label = ""
-
-    # =========================
-    # SMOOTHING + HOLD LOGIC
-    # =========================
-    buffer.append(label)
-
-    if len(buffer) == buffer.maxlen:
-        most_common = max(set(buffer), key=buffer.count)
-
-        if buffer.count(most_common) >= int(0.7 * buffer.maxlen) and most_common != "":
-            
-            if stable_label != most_common:
-                stable_label = most_common
-                hold_start = time.time()
-
-            elif time.time() - hold_start > hold_time:
-                if stable_label != last_added:
-                    sentence += stable_label
-                    last_added = stable_label
-                    hold_start = time.time()
-
-    # =========================
-    # DISPLAY
-    # =========================
-    cv2.putText(frame, f"Letter: {stable_label} ({conf_val:.2f})",
-                (10, 50),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 255, 0),
-                2)
-
-    cv2.putText(frame, f"Text: {sentence}",
-                (10, 100),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (255, 0, 0),
-                2)
-
-    cv2.imshow("ASL Detection", frame)
-
-    key = cv2.waitKey(1) & 0xFF
-
-    if key == ord('c'):
-        sentence = ""
-        last_added = ""
-
-    if key == ord('q'):
-        break
-
-# =========================
-# CLEANUP
-# =========================
-cap.release()
-cv2.destroyAllWindows()
+print("✅ Training complete!")
+print(f"Best Accuracy: {best_acc:.2f}")
