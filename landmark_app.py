@@ -2,8 +2,10 @@ import cv2
 import torch
 import mediapipe as mp
 import torch.nn as nn
+from ngram_model import NGramModel
 import torch.nn.functional as F
 from collections import deque
+
 import time
 
 # =========================
@@ -42,6 +44,16 @@ class LandmarkModel(nn.Module):
 model = LandmarkModel()
 model.load_state_dict(torch.load("landmark_model.pth", map_location=torch.device("cpu")))
 model.eval()
+
+# =========================
+# LOAD N-GRAM MODEL
+# =========================
+ngram = NGramModel(n=2)
+
+with open("corpus.txt", "r") as f:
+    corpus_text = f.read()
+
+ngram.train(corpus_text)
 
 # =========================
 # MEDIAPIPE
@@ -147,28 +159,112 @@ while True:
                     sentence += stable_label
                     last_added = stable_label
                     hold_start = time.time()
+    
+    # =========================
+# NLP WORD PREDICTION
+# =========================
+    current_word = sentence.strip().split(" ")[-1]
+
+    if len(current_word) >= 2:
+        suggestions = ngram.suggest_words(current_word, top_k=3)
+    else:
+        suggestions = []
+   
 
     # =========================
     # DISPLAY
     # =========================
-    cv2.putText(frame, f"Letter: {stable_label} ({conf_val:.2f})",
-                (10, 50),
+    # =========================
+# # =========================
+# UI OVERLAY (MODERN STYLE)
+# =========================
+    overlay = frame.copy()
+
+# Main panel
+    cv2.rectangle(overlay, (10, 10), (470, 200), (20, 20, 20), -1)
+
+# Border
+    cv2.rectangle(overlay, (10, 10), (470, 200), (0, 255, 255), 2)
+
+# Transparency
+    alpha = 0.65
+    frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
+
+
+# =========================
+# ANIMATION: CURSOR BLINK
+# =========================
+    cursor = "_" if int(time.time() * 2) % 2 == 0 else ""
+
+
+# =========================
+# LETTER DISPLAY
+# =========================
+    cv2.putText(frame, f"Letter: {stable_label}",
+                (25, 45),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                1,
+                0.9,
                 (0, 255, 0),
                 2)
 
-    cv2.putText(frame, f"Text: {sentence}",
-                (10, 100),
+# Confidence %
+    cv2.putText(frame, f"{int(conf_val * 100)}%",
+                (350, 45),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (255, 0, 0),
+                0.7,
+                (0, 255, 0),
                 2)
-    cv2.putText(frame, "SPACE=space | D=delete | C=clear | Q=quit",
-                (10, 140),
+
+
+# =========================
+# PROGRESS BAR (CONFIDENCE)
+# =========================
+    bar_width = int(conf_val * 200)
+    cv2.rectangle(frame, (25, 60), (25 + bar_width, 75), (0, 255, 0), -1)
+    cv2.rectangle(frame, (25, 60), (225, 75), (255, 255, 255), 1)
+
+
+# =========================
+# TEXT WITH CURSOR
+# =========================
+    cv2.putText(frame, f"Text: {sentence}{cursor}",
+                (25, 105),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (255, 255, 255),
+                0.8,
+                (255, 200, 0),
+                2)
+
+
+# =========================
+# SUGGESTIONS (HIGHLIGHT TOP)
+# =========================
+    if suggestions:
+    # Top suggestion (highlight)
+        cv2.putText(frame, f"{suggestions[0]}",
+                    (25, 140),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.9,
+                    (0, 255, 255),
+                    3)
+
+    # Other suggestions
+        others = ", ".join(suggestions[1:])
+        cv2.putText(frame, others,
+                    (25, 170),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (200, 200, 200),
+                    1)
+
+
+# =========================
+# CONTROLS (CLEAN STYLE)
+# =========================
+    cv2.putText(frame, "SPACE | D | C | 1=auto | Q",
+                (25, 190),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (180, 180, 180),
                 1)
     cv2.imshow("ASL Detection", frame)
 
@@ -187,11 +283,15 @@ while True:
 # Delete last character
     if key == ord('d'):
         sentence = sentence[:-1]
+# AUTO COMPLETE
+    if key == ord('1') and suggestions:
+        words = sentence.split(" ")
+        words[-1] = suggestions[0]
+        sentence = " ".join(words)
 
 # Quit app
     if key == ord('q'):
         break
-
 # =========================
 # CLEANUP
 # =========================
