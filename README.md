@@ -72,7 +72,7 @@ Sign-Language-Recognition/
 ### 1️⃣ Clone Repository
 
 ```bash
-git clone https://github.com/your-username/sign-language-recognition.git
+git clone https://github.com/yash9939/sign-language-recognition.git
 cd sign-language-recognition
 ```
 
@@ -140,7 +140,7 @@ MediaPipe detects **21 landmarks** of the hand.
 👉 Example:
 
 ```text
-Input: HE → Output: HELLO, HELP
+Input: BO → Output: BOY, BOOK, BODY
 ```
 
 ---
@@ -184,18 +184,10 @@ Input: 42 features
 
 ---
 
-## 📸 Demo
-
-<p align="center">
-  <i>Add screenshots or demo GIF here</i>
-</p>
-
----
-
 ## 👨‍💻 Authors
 
 * **Shivam Kumar**
-* **Yash Bharadwaj**
+* **Yash Bhardwaj**
 
 ---
 
